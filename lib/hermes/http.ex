@@ -14,11 +14,14 @@ defmodule Hermes.HTTP do
       {:ok, _uri} ->
         headers = @default_headers |> Map.merge(headers) |> Map.to_list()
         tesla_adapter = Keyword.get(opts, :tesla_adapter)
+        extra_middleware = Keyword.get(opts, :tesla_middleware, [])
 
-        middleware = [
-          {Tesla.Middleware.Headers, headers},
-          {Tesla.Middleware.FollowRedirects, max_redirects: @max_redirects}
-        ]
+        middleware =
+          extra_middleware ++
+            [
+              {Tesla.Middleware.Headers, headers},
+              {Tesla.Middleware.FollowRedirects, max_redirects: @max_redirects}
+            ]
 
         client = Tesla.client(middleware, tesla_adapter)
         {:ok, {client, method, url, body}}

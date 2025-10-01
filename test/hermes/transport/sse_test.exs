@@ -3,11 +3,12 @@ defmodule Hermes.Transport.SSETest do
 
   alias Hermes.MCP.Message
   alias Hermes.Transport.SSE
+  alias Tesla.Adapter.Finch
 
   @moduletag capture_log: true
   @test_http_opts [
     max_reconnections: 0,
-    tesla_adapter: {Tesla.Adapter.Finch, name: Hermes.TestFinch, response: :stream}
+    tesla_adapter: {Finch, name: Hermes.TestFinch, response: :stream}
   ]
 
   setup do
@@ -507,6 +508,55 @@ defmodule Hermes.Transport.SSETest do
       transport_state = :sys.get_state(transport)
       assert transport_state.message_url == "#{server_url}/messages/123"
       assert not String.contains?(transport_state.message_url, "/mcp/mcp/")
+      assert :ok = SSE.send_message(transport, "test message", [])
+
+      SSE.shutdown(transport)
+      StubClient.clear_messages()
+    end
+  end
+
+  describe "custom Tesla middleware" do
+    test "passes custom middleware to SSE connection", %{bypass: bypass} do
+      server_url = "http://localhost:#{bypass.port}/mcp"
+      {:ok, stub_client} = StubClient.start_link()
+
+      Bypass.expect(bypass, "GET", "/mcp/sse", fn conn ->
+        # Verify custom middleware added the header
+        assert ["custom-sse-value"] == Plug.Conn.get_req_header(conn, "x-custom-sse")
+
+        conn = Plug.Conn.put_resp_header(conn, "content-type", "text/event-stream")
+        conn = Plug.Conn.send_chunked(conn, 200)
+
+        {:ok, conn} =
+          Plug.Conn.chunk(conn, "event: endpoint\ndata: /messages/123\n\n")
+
+        conn
+      end)
+
+      Bypass.expect(bypass, "POST", "/mcp/messages/123", fn conn ->
+        # Verify custom middleware is also used for POST requests
+        assert ["custom-sse-value"] == Plug.Conn.get_req_header(conn, "x-custom-sse")
+        Plug.Conn.resp(conn, 200, "")
+      end)
+
+      {:ok, transport} =
+        SSE.start_link(
+          client: stub_client,
+          server: %{
+            base_url: server_url,
+            sse_path: "/sse"
+          },
+          transport_opts: @test_http_opts,
+          http_options: [
+            tesla_adapter: {Finch, name: Hermes.TestFinch, response: :stream},
+            tesla_middleware: [{Tesla.Middleware.Headers, [{"x-custom-sse", "custom-sse-value"}]}]
+          ]
+        )
+
+      Process.sleep(200)
+
+      transport_state = :sys.get_state(transport)
+      assert transport_state.message_url != nil
       assert :ok = SSE.send_message(transport, "test message", [])
 
       SSE.shutdown(transport)

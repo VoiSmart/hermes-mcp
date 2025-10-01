@@ -501,4 +501,49 @@ defmodule Hermes.Transport.StreamableHTTPTest do
       StubClient.clear_messages()
     end
   end
+
+  describe "custom Tesla middleware" do
+    test "passes custom middleware to HTTP client", %{bypass: bypass} do
+      server_url = "http://localhost:#{bypass.port}"
+      {:ok, stub_client} = StubClient.start_link()
+
+      Bypass.expect_once(bypass, "POST", "/mcp", fn conn ->
+        # Verify custom middleware added the header
+        assert ["custom-value"] == Plug.Conn.get_req_header(conn, "x-custom-header")
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.put_resp_header("mcp-session-id", "test-session")
+        |> Plug.Conn.resp(200, ~s|{"jsonrpc":"2.0","id":"1","result":{}}|)
+      end)
+
+      # Expect DELETE on shutdown
+      Bypass.stub(bypass, "DELETE", "/mcp", fn conn ->
+        Plug.Conn.resp(conn, 200, "")
+      end)
+
+      {:ok, transport} =
+        StreamableHTTP.start_link(
+          client: stub_client,
+          base_url: server_url,
+          mcp_path: "/mcp",
+          transport_opts: @test_http_opts,
+          http_options: [
+            tesla_middleware: [{Tesla.Middleware.Headers, [{"x-custom-header", "custom-value"}]}]
+          ]
+        )
+
+      Process.sleep(100)
+
+      {:ok, ping_message} =
+        Message.encode_request(%{"method" => "ping", "params" => %{}}, "1")
+
+      assert :ok = StreamableHTTP.send_message(transport, ping_message, [])
+
+      Process.sleep(100)
+
+      StreamableHTTP.shutdown(transport)
+      StubClient.clear_messages()
+    end
+  end
 end

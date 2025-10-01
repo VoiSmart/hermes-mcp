@@ -91,13 +91,14 @@ defmodule Hermes.SSE do
 
   defp loop_sse_stream(url, headers, adapter, ref, dest, opts, attempt \\ 1) do
     {retry, _http} = Keyword.split(opts, @retry_opts)
+    middleware = Keyword.get(opts, :tesla_middleware, [])
 
     if attempt <= retry[:max_reconnections] do
       max_backoff = retry[:max_backoff]
       base_backoff = retry[:default_backoff]
       backoff = calculate_reconnect_backoff(attempt, max_backoff, base_backoff)
 
-      case fetch_sse_stream(url, headers, adapter, dest, ref) do
+      case fetch_sse_stream(url, headers, adapter, dest, ref, middleware) do
         :ok ->
           Hermes.Logging.transport_event("sse_reconnect", %{
             reason: "success",
@@ -136,7 +137,7 @@ defmodule Hermes.SSE do
     end
   end
 
-  defp fetch_sse_stream(url, headers, adapter, dest, ref) do
+  defp fetch_sse_stream(url, headers, adapter, dest, ref, extra_middleware) do
     if adapter == nil do
       raise ArgumentError, """
       SSE streaming requires a Tesla adapter that supports response streaming.
@@ -150,7 +151,8 @@ defmodule Hermes.SSE do
       """
     end
 
-    client = Tesla.client([Tesla.Middleware.SSE], adapter)
+    middleware = extra_middleware ++ [Tesla.Middleware.SSE]
+    client = Tesla.client(middleware, adapter)
     url_string = if is_binary(url), do: url, else: URI.to_string(url)
 
     case Tesla.get(client, url_string, headers: headers) do

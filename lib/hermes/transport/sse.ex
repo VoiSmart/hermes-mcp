@@ -166,7 +166,8 @@ defmodule Hermes.Transport.SSE do
           SSE.connect(state.sse_url, state.headers,
             dest: self(),
             transport_opts: state.transport_opts,
-            tesla_adapter: Keyword.get(state.http_options, :tesla_adapter)
+            tesla_adapter: Keyword.get(state.http_options, :tesla_adapter),
+            tesla_middleware: Keyword.get(state.http_options, :tesla_middleware, [])
           )
 
         process_stream(stream, parent)
