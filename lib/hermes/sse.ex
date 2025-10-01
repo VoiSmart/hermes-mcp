@@ -1,5 +1,31 @@
 defmodule Hermes.SSE do
-  @moduledoc false
+  @moduledoc """
+  SSE (Server-Sent Events) connection handling.
+
+  ## Adapter Requirements
+
+  This module requires a Tesla adapter that supports response streaming.
+  Pass the adapter via the `:tesla_adapter` option.
+
+  Supported streaming adapters:
+  - `{Tesla.Adapter.Finch, name: MyFinch, response: :stream}` (requires Finch supervision)
+  - `{Tesla.Adapter.Mint, body_as: :stream}`
+  - `{Tesla.Adapter.Gun, body_as: :stream}`
+
+  ## Example
+
+      # In your application supervision tree
+      children = [
+        {Finch, name: MyFinch}
+      ]
+
+      # Connect to SSE endpoint
+      Hermes.SSE.connect(
+        "http://example.com/sse",
+        %{},
+        tesla_adapter: {Tesla.Adapter.Finch, name: MyFinch, response: :stream}
+      )
+  """
 
   use Hermes.Logging
 
@@ -40,43 +66,39 @@ defmodule Hermes.SSE do
   def connect(server_url, headers \\ %{}, opts \\ []) do
     opts = Keyword.merge(@default_http_opts, opts)
 
-    with {:ok, uri} <- parse_uri(server_url) do
-      headers = headers |> Map.merge(@connection_headers) |> Map.to_list()
+    case URI.new(server_url) do
+      {:ok, _uri} ->
+        headers = headers |> Map.merge(@connection_headers) |> Map.to_list()
+        adapter = Keyword.get(opts, :tesla_adapter)
+        ref = make_ref()
+        task = spawn_stream_task(server_url, headers, adapter, ref, opts)
 
-      req = Finch.build(:get, uri, headers)
-      ref = make_ref()
-      task = spawn_stream_task(req, ref, opts)
+        Stream.resource(
+          fn -> {ref, task} end,
+          &process_task_stream/1,
+          &shutdown_task/1
+        )
 
-      Stream.resource(
-        fn -> {ref, task} end,
-        &process_task_stream/1,
-        &shutdown_task/1
-      )
+      {:error, _} ->
+        {:error, :invalid_url}
     end
   end
 
-  defp parse_uri(url) do
-    with {:error, _} <- URI.new(url), do: {:error, :invalid_url}
-  end
-
-  defp spawn_stream_task(%Finch.Request{} = req, ref, opts) do
+  defp spawn_stream_task(url, headers, adapter, ref, opts) do
     dest = Keyword.get(opts, :dest, self())
-
-    Task.async(fn -> loop_sse_stream(req, ref, dest, opts) end)
+    Task.async(fn -> loop_sse_stream(url, headers, adapter, ref, dest, opts) end)
   end
 
-  defp loop_sse_stream(req, ref, dest, opts, attempt \\ 1) do
-    {retry, http} = Keyword.split(opts, @retry_opts)
+  defp loop_sse_stream(url, headers, adapter, ref, dest, opts, attempt \\ 1) do
+    {retry, _http} = Keyword.split(opts, @retry_opts)
 
     if attempt <= retry[:max_reconnections] do
       max_backoff = retry[:max_backoff]
       base_backoff = retry[:default_backoff]
       backoff = calculate_reconnect_backoff(attempt, max_backoff, base_backoff)
 
-      on_chunk = &process_sse_stream(&1, &2, dest, ref)
-
-      case Finch.stream_while(req, Hermes.Finch, nil, on_chunk, http) do
-        {:ok, _acc} ->
+      case fetch_sse_stream(url, headers, adapter, dest, ref) do
+        :ok ->
           Hermes.Logging.transport_event("sse_reconnect", %{
             reason: "success",
             attempt: attempt,
@@ -84,14 +106,14 @@ defmodule Hermes.SSE do
           })
 
           Process.sleep(backoff)
-          loop_sse_stream(req, ref, dest, opts, attempt + 1)
+          loop_sse_stream(url, headers, adapter, ref, dest, opts, attempt + 1)
 
-        {:error, exc, _acc} ->
+        {:error, reason} ->
           Hermes.Logging.transport_event(
             "sse_reconnect",
             %{
               reason: "error",
-              error: Exception.message(exc),
+              error: inspect(reason),
               attempt: attempt,
               max_attempts: retry[:max_reconnections]
             },
@@ -99,7 +121,7 @@ defmodule Hermes.SSE do
           )
 
           Process.sleep(backoff + to_timeout(second: 1))
-          loop_sse_stream(req, ref, dest, opts, attempt + 1)
+          loop_sse_stream(url, headers, adapter, ref, dest, opts, attempt + 1)
       end
     else
       send(dest, {:chunk, :halted, ref})
@@ -114,22 +136,101 @@ defmodule Hermes.SSE do
     end
   end
 
+  defp fetch_sse_stream(url, headers, adapter, dest, ref) do
+    if adapter == nil do
+      raise ArgumentError, """
+      SSE streaming requires a Tesla adapter that supports response streaming.
+
+      Please provide one of the following via the :tesla_adapter option:
+      - {Tesla.Adapter.Finch, name: MyFinch, response: :stream}
+      - {Tesla.Adapter.Mint, body_as: :stream}
+      - {Tesla.Adapter.Gun, body_as: :stream}
+
+      See Hermes.SSE moduledoc for more information.
+      """
+    end
+
+    client = Tesla.client([Tesla.Middleware.SSE], adapter)
+    url_string = if is_binary(url), do: url, else: URI.to_string(url)
+
+    case Tesla.get(client, url_string, headers: headers) do
+      {:ok, %Tesla.Env{status: status, headers: resp_headers, body: body}} when status == 200 ->
+        send(dest, {:chunk, {:status, status}, ref})
+        send(dest, {:chunk, {:headers, resp_headers}, ref})
+
+        # Tesla.Middleware.SSE parses the stream and returns a Stream of parsed events
+        # Each event is a map with keys like :data, :event, :id, :retry
+        # We need to convert these to Hermes.SSE.Event structs
+        cond do
+          is_struct(body, Stream) or is_function(body) ->
+            # Stream each parsed SSE event and convert to our Event format
+            # This will block on the stream, which is fine for SSE (long-lived connection)
+            try do
+              Enum.each(body, fn tesla_event ->
+                hermes_event = %Hermes.SSE.Event{
+                  id: Map.get(tesla_event, :id),
+                  event: Map.get(tesla_event, :event, "message"),
+                  data: Map.get(tesla_event, :data, Map.get(tesla_event, "data", "")),
+                  retry: Map.get(tesla_event, :retry)
+                }
+
+                # Send as parsed event directly (not as binary data)
+                send(dest, {:chunk, {:sse_event, hermes_event}, ref})
+              end)
+
+              # Stream ended normally
+              :ok
+            catch
+              kind, reason ->
+                # Stream error
+                {:error, {kind, reason}}
+            end
+
+          is_binary(body) ->
+            # Fallback for non-streaming response body - parse it ourselves
+            send(dest, {:chunk, {:data, body}, ref})
+            :ok
+
+          true ->
+            # Unknown body type
+            {:error, {:unknown_body_type, body}}
+        end
+
+      {:ok, %Tesla.Env{status: status, body: body}} ->
+        send(dest, {:chunk, {:status, status}, ref})
+        # For error responses, body might be a stream - consume it to get the actual error message
+        error_body =
+          cond do
+            is_binary(body) -> body
+            is_struct(body, Stream) or is_function(body) -> Enum.join(body, "")
+            true -> inspect(body)
+          end
+
+        {:error, {:bad_status, status, error_body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp calculate_reconnect_backoff(attempt, max, base) do
     min(max, attempt ** 2 * base)
   end
 
-  # the raw streaming response
-  defp process_sse_stream({:status, status}, acc, _dest, _ref) when status != 200, do: {:halt, acc}
-
-  defp process_sse_stream(chunk, acc, dest, ref) do
-    send(dest, {:chunk, chunk, ref})
-    {:cont, acc}
-  end
-
   defp process_task_stream({ref, _task} = state) do
     receive do
-      {:chunk, {:data, data}, ^ref} ->
+      {:chunk, {:data, data}, ^ref} when is_binary(data) ->
         {Parser.run(data), state}
+
+      {:chunk, {:data, %Stream{} = _stream}, ^ref} ->
+        # This shouldn't happen - means Tesla.Middleware.SSE wasn't applied properly
+        # Just ignore and return empty
+        Hermes.Logging.transport_event("sse_unexpected_stream", "Received Stream as data")
+        {[], state}
+
+      {:chunk, {:sse_event, event}, ^ref} ->
+        # Already parsed event from Tesla.Middleware.SSE
+        {[event], state}
 
       {:chunk, {:status, status}, ^ref} ->
         Hermes.Logging.transport_event("sse_status", status)

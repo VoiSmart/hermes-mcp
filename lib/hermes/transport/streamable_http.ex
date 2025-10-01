@@ -266,14 +266,10 @@ defmodule Hermes.Transport.StreamableHTTP do
       headers: headers
     })
 
-    request = HTTP.build(:post, url, headers, message, options)
-
-    request
-    |> HTTP.follow_redirect()
-    |> case do
-      {:ok, %{status: status} = response} when status in 200..299 ->
-        {:ok, response}
-
+    with {:ok, request} <- HTTP.build(:post, url, headers, message, options),
+         {:ok, %{status: status} = response} when status in 200..299 <- HTTP.request(request) do
+      {:ok, response}
+    else
       {:ok, %{status: status, body: body}} ->
         {:error, {:http_error, status, body}}
 
@@ -458,10 +454,10 @@ defmodule Hermes.Transport.StreamableHTTP do
   end
 
   defp process_sse_request(request, parent) do
-    case HTTP.follow_redirect(request) do
-      {:ok, %{status: 200, headers: resp_headers, body: body}} ->
-        handle_sse_response(resp_headers, body, parent)
-
+    with {:ok, built_request} <- request,
+         {:ok, %{status: 200, headers: resp_headers, body: body}} <- HTTP.request(built_request) do
+      handle_sse_response(resp_headers, body, parent)
+    else
       {:ok, %{status: 405}} ->
         Logging.transport_event(
           "sse_not_supported",
@@ -483,19 +479,14 @@ defmodule Hermes.Transport.StreamableHTTP do
 
   defp delete_session(state) do
     headers = put_session_header(%{}, state.session_id)
-
     options = [transport_opts: state.transport_opts] ++ state.http_options
 
-    request =
-      HTTP.build(:delete, URI.to_string(state.mcp_url), headers, nil, options)
-
-    case HTTP.follow_redirect(request) do
-      {:ok, %{status: status}} when status in [200, 405] ->
-        :ok
-
+    with {:ok, request} <- HTTP.build(:delete, URI.to_string(state.mcp_url), headers, nil, options),
+         {:ok, %{status: status}} when status in [200, 405] <- HTTP.request(request) do
+      :ok
+    else
       error ->
         Logging.transport_event("session_delete_failed", %{error: error}, level: :debug)
-
         :ok
     end
   end

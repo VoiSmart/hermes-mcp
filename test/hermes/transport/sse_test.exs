@@ -5,7 +5,10 @@ defmodule Hermes.Transport.SSETest do
   alias Hermes.Transport.SSE
 
   @moduletag capture_log: true
-  @test_http_opts [max_reconnections: 0]
+  @test_http_opts [
+    max_reconnections: 0,
+    tesla_adapter: {Tesla.Adapter.Finch, name: Hermes.TestFinch, response: :stream}
+  ]
 
   setup do
     bypass = Bypass.open()
@@ -45,7 +48,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       # Give time for the SSE connection to establish and process the event
@@ -112,7 +116,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       # Give time for the SSE connection to establish
@@ -161,7 +166,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       # Wait for transport to start
@@ -210,7 +216,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       # Give the SSE connection time to establish
@@ -275,7 +282,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       # Give time for the connection to be established and messages to be processed
@@ -314,7 +322,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: [max_reconnections: 0]
+          transport_opts: [max_reconnections: 0],
+          http_options: @test_http_opts
         )
 
       # Allow time for the initial connection attempt
@@ -373,7 +382,8 @@ defmodule Hermes.Transport.SSETest do
             "accept" => "application/json",
             "authorization" => "auth-token"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       Process.sleep(200)
@@ -413,7 +423,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       Process.sleep(200)
@@ -448,7 +459,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       Process.sleep(200)
@@ -486,7 +498,8 @@ defmodule Hermes.Transport.SSETest do
             base_url: server_url,
             sse_path: "/sse"
           },
-          transport_opts: @test_http_opts
+          transport_opts: @test_http_opts,
+          http_options: @test_http_opts
         )
 
       Process.sleep(200)

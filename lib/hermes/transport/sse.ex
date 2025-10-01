@@ -165,7 +165,8 @@ defmodule Hermes.Transport.SSE do
         stream =
           SSE.connect(state.sse_url, state.headers,
             dest: self(),
-            transport_opts: state.transport_opts
+            transport_opts: state.transport_opts,
+            tesla_adapter: Keyword.get(state.http_options, :tesla_adapter)
           )
 
         process_stream(stream, parent)
@@ -233,16 +234,21 @@ defmodule Hermes.Transport.SSE do
       metadata
     )
 
-    request = make_message_request(message, state)
+    with {:ok, request} <- make_message_request(message, state),
+         {:ok, %Tesla.Env{status: status}} when status in 200..299 <- HTTP.request(request) do
+      {:reply, :ok, state}
+    else
+      {:ok, %Tesla.Env{status: status, body: body}} ->
+        # Body might be a stream with streaming adapters - consume it
+        error_body =
+          cond do
+            is_binary(body) -> body
+            is_struct(body, Stream) or is_function(body) -> Enum.join(body, "")
+            true -> inspect(body)
+          end
 
-    case HTTP.follow_redirect(request) do
-      {:ok, %Finch.Response{status: status}} when status in 200..299 ->
-        {:reply, :ok, state}
-
-      {:ok, %Finch.Response{status: status, body: body}} ->
-        Logging.transport_event("http_error", %{status: status, body: body}, level: :error)
-
-        {:reply, {:error, {:http_error, status, body}}, state}
+        Logging.transport_event("http_error", %{status: status, body: error_body}, level: :error)
+        {:reply, {:error, {:http_error, status, error_body}}, state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}

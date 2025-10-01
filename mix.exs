@@ -32,8 +32,7 @@ defmodule Hermes.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
-      mod: {Hermes.Application, []}
+      extra_applications: [:logger]
     ]
   end
 
@@ -46,7 +45,7 @@ defmodule Hermes.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:finch, "~> 0.19"},
+      {:tesla, "~> 1.14"},
       {:peri, "~> 0.4"},
       {:telemetry, "~> 1.2"},
       {:gun, "~> 2.2", optional: true},
