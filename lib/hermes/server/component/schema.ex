@@ -39,11 +39,18 @@ defmodule Hermes.Server.Component.Schema do
 
   def to_prompt_arguments(schema) when is_map(schema) do
     Enum.map(schema, fn {key, type} ->
-      %{
+      {_inner_type, metadata} = extract_metadata(type)
+
+      base = %{
         "name" => to_string(key),
         "description" => describe_type(type),
         "required" => required?(type)
       }
+
+      case Keyword.fetch(metadata, :default) do
+        {:ok, default} -> Map.put(base, "default", default)
+        :error -> base
+      end
     end)
   end
 
@@ -73,6 +80,7 @@ defmodule Hermes.Server.Component.Schema do
       {:format, format}, schema -> Map.put(schema, "format", format)
       {:description, desc}, schema -> Map.put(schema, "description", desc)
       {:type, json_type}, schema -> Map.put(schema, "type", to_string(json_type))
+      {:default, default}, schema -> Map.put(schema, "default", default)
       _, schema -> schema
     end)
   end
@@ -229,6 +237,9 @@ defmodule Hermes.Server.Component.Schema do
   defp describe_base_type({type, _}), do: "#{to_string(type)} parameter"
   defp describe_base_type(schema) when is_map(schema), do: "nested object"
   defp describe_base_type(_), do: "parameter"
+
+  defp extract_metadata({:mcp_field, type, opts}), do: {type, opts}
+  defp extract_metadata(type), do: {type, []}
 
   @spec validator(schema()) :: (map() ->
                                   {:ok, map()} | {:error, list(Peri.Error.t())})
