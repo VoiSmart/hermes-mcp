@@ -2,11 +2,12 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
   use ExUnit.Case, async: true
 
   alias Hermes.Server.Component.Schema
+  alias Hermes.Test.SchemaDSLHelpers
 
   describe "Schema.normalize/1 parse the schema DSL correctly" do
     test "empty schema" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
           end
         )
@@ -19,7 +20,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro with no constraints or metadata" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :name, :string
             field :age, :integer
@@ -37,7 +38,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro with metadata" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :language, :string, description: "Programming language", default: "elixir"
           end
@@ -53,7 +54,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro with min constraint only" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :threshold, :integer, min: 5
           end
@@ -69,7 +70,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro with max constraint only" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :ceiling, :integer, max: 10
           end
@@ -85,7 +86,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro converts min and max into range constraint" do
       tool_module_int =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :limit, :integer, min: 1, max: 10
           end
@@ -99,7 +100,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
              }
 
       tool_module_float =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :ratio, :float, min: 0.0, max: 1.0
           end
@@ -115,7 +116,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro with required constraint only" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field(:email, :string, description: "User email", required: true)
           end
@@ -129,7 +130,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
              }
 
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field(:email, :string, required: true, description: "User email")
           end
@@ -145,7 +146,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro required with other constraints and metadata" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field(:some_int, :integer, min: 5, required: true, description: "Some integer")
           end
@@ -159,7 +160,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
              }
 
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field(:some_float, :float, required: true, max: 30, description: "Some float")
           end
@@ -175,7 +176,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro handles required option on nested object" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :event, required: true do
               field :name, :string, required: true
@@ -200,7 +201,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "field macro with nonexisting constraints/metadata are ignored" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field(:unknown, :string, foo: 123, bar: "test", required: true, description: "Unknown fields")
           end
@@ -214,7 +215,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
              }
 
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field(:another_unknown, :integer, baz: 3.14, qux: false)
           end
@@ -229,31 +230,10 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
     end
   end
 
-  defp build_tool(schema_ast) do
-    module_name = Module.concat(__MODULE__, "Generated#{System.unique_integer([:positive])}")
-
-    quoted =
-      quote do
-        use Hermes.Server.Component, type: :tool
-
-        schema do
-          unquote(schema_ast)
-        end
-
-        @impl true
-        def execute(params, _ctx), do: {:ok, params}
-      end
-
-    {:module, module, _binary, _warnings} =
-      Module.create(module_name, quoted, Macro.Env.location(__ENV__))
-
-    module
-  end
-
   describe "Component.input_schema/0 with DSL macros generates correct JSON Schema" do
     test "complex schema with various fields and constraints" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :username, :string, required: true, description: "User's login name"
             field :age, :integer, min: 0, description: "User's age"
@@ -302,7 +282,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "nested objects with required and default fields" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :profile, required: true do
               field :first_name, :string, required: true
@@ -355,7 +335,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
   describe "runtime validation via mcp_schema/1" do
     test "enforces type constraints and required fields" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :username, :string, required: true
             field :age, :integer, min: 0, max: 120
@@ -373,7 +353,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     test "enforces float range constraints" do
       tool_module =
-        build_tool(
+        SchemaDSLHelpers.build_tool(
           quote do
             field :ratio, :float, min: 0.1, max: 0.9
           end
