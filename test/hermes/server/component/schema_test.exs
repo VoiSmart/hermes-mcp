@@ -945,6 +945,70 @@ defmodule Hermes.Server.Component.SchemaTest do
                limit: {:mcp_field, {:integer, {:range, {1, 100}}}, [default: 10, description: "Page limit"]}
              }
     end
+
+    test "handles :mcp_field nested min/max length integer sconstraints" do
+      schema = %{
+        profile:
+          {:mcp_field,
+           %{
+             tel: {:mcp_field, :integer, [min: 3, max: 12, description: "Username"]}
+           }, [description: "User profile"]}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               profile:
+                 {:mcp_field,
+                  %{
+                    tel: {:mcp_field, {:integer, {:range, {3, 12}}}, [description: "Username"]}
+                  }, [description: "User profile"]}
+             }
+    end
+
+    test "handles :mcp_field strings min/max constraints" do
+      schema = %{
+        title: {:mcp_field, :string, [min: 5, max: 100, description: "Title text"]}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               title: {:mcp_field, {:string, [min: 5, max: 100]}, [description: "Title text"]}
+             }
+    end
+
+    test "handles :mcp_field strings min/max length constraints" do
+      schema = %{
+        title: {:mcp_field, :string, [min_length: 5, max_length: 100, description: "Title text"]}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               title: {:mcp_field, {:string, [min: 5, max: 100]}, [description: "Title text"]}
+             }
+    end
+
+    test "handles :mcp_field nested min/max length string constraints" do
+      schema = %{
+        profile:
+          {:mcp_field,
+           %{
+             username: {:mcp_field, :string, [min_length: 3, max_length: 12, description: "Username"]}
+           }, [description: "User profile"]}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               profile:
+                 {:mcp_field,
+                  %{
+                    username: {:mcp_field, {:string, [min: 3, max: 12]}, [description: "Username"]}
+                  }, [description: "User profile"]}
+             }
+    end
   end
 
   describe "integration with runtime format" do

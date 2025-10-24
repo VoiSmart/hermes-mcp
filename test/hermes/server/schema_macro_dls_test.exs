@@ -276,6 +276,74 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
                another_unknown: {:mcp_field, :integer, []}
              }
     end
+
+    test "nested field macro with notexisting constraints/metadata are ignored" do
+      require Logger
+
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :config, required: true, description: "config" do
+              field :settings, description: "settings" do
+                field :option, :string, foo: "bar", required: true
+              end
+
+              field :level, :integer, baz: 42
+            end
+          end
+        )
+
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               config:
+                 {:mcp_field,
+                  {:required,
+                   %{
+                     settings:
+                       {:mcp_field,
+                        %{
+                          option: {:mcp_field, {:required, :string}, []}
+                        }, [description: "settings"]},
+                     level: {:mcp_field, :integer, []}
+                   }}, [description: "config"]}
+             }
+    end
+
+    test "complex nested schema with various constraints and metadata" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :user, required: true, description: "User information" do
+              field :id, :string, format: "uuid", required: true
+
+              field :profile do
+                field :age, :integer, min: 0
+                field :bio, :string, max_length: 160
+              end
+            end
+          end
+        )
+
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               user:
+                 {:mcp_field,
+                  {:required,
+                   %{
+                     id: {:mcp_field, {:required, :string}, [format: "uuid"]},
+                     profile:
+                       {:mcp_field,
+                        %{
+                          age: {:mcp_field, {:integer, {:gte, 0}}, []},
+                          bio: {:mcp_field, {:string, {:max, 160}}, []}
+                        }, []}
+                   }}, [description: "User information"]}
+             }
+    end
   end
 
   describe "Component.input_schema/0 with DSL macros generates correct JSON Schema" do
@@ -324,10 +392,16 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
             }
           }
         },
-        "required" => ["email", "username"]
+        "required" => ["username", "email"]
       }
 
-      assert tool_module.input_schema() == expected_json_schema
+      input_schema = tool_module.input_schema()
+
+      assert input_schema["type"] == expected_json_schema["type"]
+      assert input_schema["properties"] == expected_json_schema["properties"]
+
+      assert MapSet.new(input_schema["required"]) ==
+               MapSet.new(expected_json_schema["required"])
     end
 
     test "nested objects with required and default fields" do
@@ -380,6 +454,99 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
       assert tool_module.input_schema() == expected_json_schema
     end
+
+    test "string base and nested fields with length constraints" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :title, :string, min_length: 5, max_length: 100
+            field :script, :string, max_length: 500
+
+            field :summary do
+              field :notes, :string
+              field :comments, :string, min_length: 3
+            end
+          end
+        )
+
+      expected_json_schema = %{
+        "type" => "object",
+        "properties" => %{
+          "title" => %{
+            "type" => "string",
+            "minLength" => 5,
+            "maxLength" => 100
+          },
+          "script" => %{
+            "type" => "string",
+            "maxLength" => 500
+          },
+          "summary" => %{
+            "type" => "object",
+            "properties" => %{
+              "notes" => %{
+                "type" => "string"
+              },
+              "comments" => %{
+                "type" => "string",
+                "minLength" => 3
+              }
+            }
+          }
+        }
+      }
+
+      assert tool_module.input_schema() == expected_json_schema
+    end
+
+    test "complex nested schema with various constraints and metadata" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :user, required: true, description: "User information" do
+              field :id, :string, format: "uuid", required: true
+
+              field :profile do
+                field :age, :integer, min: 0
+                field :bio, :string, max_length: 160
+              end
+            end
+          end
+        )
+
+      expected_json_schema = %{
+        "type" => "object",
+        "properties" => %{
+          "user" => %{
+            "type" => "object",
+            "description" => "User information",
+            "properties" => %{
+              "id" => %{
+                "type" => "string",
+                "format" => "uuid"
+              },
+              "profile" => %{
+                "type" => "object",
+                "properties" => %{
+                  "age" => %{
+                    "type" => "integer",
+                    "minimum" => 0
+                  },
+                  "bio" => %{
+                    "type" => "string",
+                    "maxLength" => 160
+                  }
+                }
+              }
+            },
+            "required" => ["id"]
+          }
+        },
+        "required" => ["user"]
+      }
+
+      assert tool_module.input_schema() == expected_json_schema
+    end
   end
 
   describe "runtime validation via mcp_schema/1" do
@@ -417,5 +584,113 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
       assert {:error, errors} = tool_module.mcp_schema(%{ratio: 0.0})
       assert Enum.any?(errors, &match?(%{path: [:ratio]}, &1))
     end
+
+    test "validates nested objects constrained plus required fields" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :profile, required: true do
+              field :first_name, :string, required: true
+              field :last_name, :string, max_length: 5
+              field :age, :integer, min: 0
+            end
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{profile: %{first_name: "John"}})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{})
+      paths = error_paths(errors)
+      assert [:profile] in paths
+
+      assert {:error, errors} = tool_module.mcp_schema(%{profile: %{}})
+      paths = error_paths(errors)
+      assert [:profile, :first_name] in paths
+
+      assert {:error, errors} = tool_module.mcp_schema(%{profile: %{first_name: "Alice", age: -10}})
+      assert [:profile, :age] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{profile: %{first_name: "magnum", last_name: "magnums"}})
+      paths = error_paths(errors)
+      assert [:profile, :last_name] in paths
+    end
+
+    test "validates string length constraints" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :title, :string, min_length: 5, max_length: 20
+            field :description, :string, max_length: 100
+
+            field :nestings do
+              field :tags, :string
+
+              field :notes do
+                field :comments, :string, min_length: 10
+              end
+            end
+          end
+        )
+
+      assert {:ok, _} =
+               tool_module.mcp_schema(%{
+                 title: "A valid title",
+                 description: "Some description",
+                 nesting: %{notes: %{comment: "This is a valid comment"}}
+               })
+
+      assert {:error, errors} = tool_module.mcp_schema(%{title: "Shrt"})
+      assert [:title] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{title: "This title is way too long to be valid"})
+      assert [:title] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{nestings: %{notes: %{comments: "Too short"}}})
+      assert [:nestings, :notes, :comments] in error_paths(errors)
+    end
+
+    test "ignores unknown fields in input data" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :user, required: true, description: "User information" do
+              field :id, :string, format: "uuid", required: true
+
+              field :profile do
+                field :age, :integer, min: 0
+                field :bio, :string, max_length: 160
+              end
+            end
+          end
+        )
+
+      assert {:ok, _} =
+               tool_module.mcp_schema(%{
+                 user: %{
+                   id: "550e8400-e29b-41d4-a716-446655440000",
+                   profile: %{
+                     age: 30,
+                     bio: "Hello world!"
+                   },
+                   extra_field: "should be ignored"
+                 },
+                 another_extra: 123
+               })
+
+      assert {:error, errors} = tool_module.mcp_schema(%{user: %{profile: %{age: -5}}})
+      paths = error_paths(errors)
+      assert [:user, :id] in paths
+      assert [:user, :profile, :age] in paths
+    end
+  end
+
+  defp error_paths(errors) do
+    Enum.flat_map(errors, fn
+      %Peri.Error{path: path, errors: nil} ->
+        [List.wrap(path)]
+
+      %Peri.Error{path: path, errors: nested} when is_list(nested) ->
+        [List.wrap(path)] ++ error_paths(nested)
+    end)
   end
 end
