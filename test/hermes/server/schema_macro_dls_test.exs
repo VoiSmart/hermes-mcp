@@ -52,6 +52,54 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
              }
     end
 
+    test "field macro with min_length constraint" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :username, :string, min_length: 3
+          end
+        )
+
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               username: {:mcp_field, {:string, {:min, 3}}, []}
+             }
+    end
+
+    test "field macro with max_length constraint" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :username, :string, max_length: 12
+          end
+        )
+
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               username: {:mcp_field, {:string, {:max, 12}}, []}
+             }
+    end
+
+    test "field macro with range via min_length and max_length" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :username, :string, min_length: 3, max_length: 12
+          end
+        )
+
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               username: {:mcp_field, {:string, [min: 3, max: 12]}, []}
+             }
+    end
+
     test "field macro with min constraint only" do
       tool_module =
         SchemaDSLHelpers.build_tool(
@@ -235,7 +283,7 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
       tool_module =
         SchemaDSLHelpers.build_tool(
           quote do
-            field :username, :string, required: true, description: "User's login name"
+            field :username, :string, required: true, description: "User's login name", min_length: 3, max_length: 12
             field :age, :integer, min: 0, description: "User's age"
             field :email, :string, format: "email", required: true
 
@@ -251,7 +299,9 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
         "properties" => %{
           "username" => %{
             "type" => "string",
-            "description" => "User's login name"
+            "description" => "User's login name",
+            "minLength" => 3,
+            "maxLength" => 12
           },
           "age" => %{
             "type" => "integer",
