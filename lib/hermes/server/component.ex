@@ -201,6 +201,8 @@ defmodule Hermes.Server.Component do
   end
 
   defp build_nested_field(name, opts, block) do
+    {required, remaining_opts} = Keyword.pop(opts, :required, false)
+
     nested_content =
       case block do
         {:__block__, _, expressions} ->
@@ -210,8 +212,10 @@ defmodule Hermes.Server.Component do
           {:%{}, [], [single_expr]}
       end
 
+    type = if required, do: {:required, nested_content}, else: nested_content
+
     quote do
-      {unquote(name), {:mcp_field, unquote(nested_content), unquote(opts)}}
+      {unquote(name), {:mcp_field, unquote(type), unquote(remaining_opts)}}
     end
   end
 
