@@ -299,5 +299,93 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
       assert tool_module.input_schema() == expected_json_schema
     end
+
+    test "nested objects with required and default fields" do
+      tool_module =
+        build_tool(
+          quote do
+            field :profile, required: true do
+              field :first_name, :string, required: true
+              field :last_name, :string
+
+              field :settings do
+                field :theme, :string, default: "light"
+                field :language, :string, required: true
+              end
+            end
+          end
+        )
+
+      expected_json_schema = %{
+        "type" => "object",
+        "properties" => %{
+          "profile" => %{
+            "type" => "object",
+            "properties" => %{
+              "first_name" => %{
+                "type" => "string"
+              },
+              "last_name" => %{
+                "type" => "string"
+              },
+              "settings" => %{
+                "type" => "object",
+                "properties" => %{
+                  "theme" => %{
+                    "type" => "string",
+                    "default" => "light"
+                  },
+                  "language" => %{
+                    "type" => "string"
+                  }
+                },
+                "required" => ["language"]
+              }
+            },
+            "required" => ["first_name"]
+          }
+        },
+        "required" => ["profile"]
+      }
+
+      assert tool_module.input_schema() == expected_json_schema
+    end
+  end
+
+  describe "runtime validation via mcp_schema/1" do
+    test "enforces type constraints and required fields" do
+      tool_module =
+        build_tool(
+          quote do
+            field :username, :string, required: true
+            field :age, :integer, min: 0, max: 120
+            field :email, :string, required: true
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{username: "user-1", email: "user@example.com", age: 25})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{username: "user-1", age: -5})
+
+      assert Enum.any?(errors, &match?(%{path: [:age]}, &1))
+      assert Enum.any?(errors, &match?(%{path: [:email]}, &1))
+    end
+
+    test "enforces float range constraints" do
+      tool_module =
+        build_tool(
+          quote do
+            field :ratio, :float, min: 0.1, max: 0.9
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{ratio: 0.5})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{ratio: 1.5})
+      assert Enum.any?(errors, &match?(%{path: [:ratio]}, &1))
+
+      assert {:error, errors} = tool_module.mcp_schema(%{ratio: 0.0})
+      assert Enum.any?(errors, &match?(%{path: [:ratio]}, &1))
+    end
   end
 end

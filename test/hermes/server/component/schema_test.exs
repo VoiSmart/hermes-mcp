@@ -459,9 +459,78 @@ defmodule Hermes.Server.Component.SchemaTest do
                "required" => ["name"]
              }
     end
+
+    test "includes default metadata in generated JSON schema" do
+      schema = %{
+        limit: {:mcp_field, :integer, [default: 10, description: "Result limit"]},
+        profile:
+          {:mcp_field,
+           %{
+             theme: {:mcp_field, :string, [default: "dark"]}
+           }, []},
+        a_nested:
+          {:mcp_field, %{more_nested: {:mcp_field, %{even_more_nested: {:mcp_field, :string, [default: "value"]}}, []}},
+           []}
+      }
+
+      result = Schema.to_json_schema(schema)
+
+      assert result["properties"]["limit"]["default"] == 10
+      assert result["properties"]["limit"]["description"] == "Result limit"
+
+      assert result["properties"]["profile"] == %{
+               "type" => "object",
+               "properties" => %{
+                 "theme" => %{"type" => "string", "default" => "dark"}
+               }
+             }
+
+      assert result["properties"]["a_nested"] == %{
+               "type" => "object",
+               "properties" => %{
+                 "more_nested" => %{
+                   "type" => "object",
+                   "properties" => %{
+                     "even_more_nested" => %{
+                       "type" => "string",
+                       "default" => "value"
+                     }
+                   }
+                 }
+               }
+             }
+    end
   end
 
   describe "to_prompt_arguments/1 with mcp_field" do
+    test "includes default values in prompt arguments" do
+      schema = %{
+        limit: {:mcp_field, :integer, [default: 10, description: "Result limit"]},
+        config:
+          {:mcp_field,
+           %{
+             mode: {:mcp_field, :string, [default: "auto"]},
+             retries: {:mcp_field, :integer, [default: 3]}
+           }, []}
+      }
+
+      result = Schema.to_prompt_arguments(schema)
+
+      assert result == [
+               %{
+                 "name" => "config",
+                 "description" => "Optional nested object",
+                 "required" => false
+               },
+               %{
+                 "name" => "limit",
+                 "description" => "Result limit",
+                 "required" => false,
+                 "default" => 10
+               }
+             ]
+    end
+
     test "uses custom description from mcp_field" do
       schema = %{
         language: {:mcp_field, {:required, :string}, description: "Programming language"},
@@ -843,7 +912,8 @@ defmodule Hermes.Server.Component.SchemaTest do
                  "limit" => %{
                    "type" => "integer",
                    "minimum" => 1,
-                   "maximum" => 100
+                   "maximum" => 100,
+                   "default" => 10
                  },
                  "filters" => %{
                    "type" => "object",
