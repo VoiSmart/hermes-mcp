@@ -77,6 +77,20 @@ defmodule Hermes.Server.Component.SchemaTest do
              }
     end
 
+    test "converts string range constraints" do
+      schema = %{
+        nickname: {:string, [min: 3, max: 12]}
+      }
+
+      result = Schema.to_json_schema(schema)
+
+      assert result["properties"]["nickname"] == %{
+               "type" => "string",
+               "minLength" => 3,
+               "maxLength" => 12
+             }
+    end
+
     test "converts numeric constraints" do
       schema = %{
         eq_int: {:integer, {:eq, 42}},
@@ -673,6 +687,54 @@ defmodule Hermes.Server.Component.SchemaTest do
 
       assert normalized == %{
                threshold: {:mcp_field, {:integer, {:gte, 5}}, []}
+             }
+    end
+
+    test "handles string fields with min_length constraint" do
+      schema = %{
+        username: {:string, min_length: 3}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               username: {:mcp_field, {:string, {:min, 3}}, []}
+             }
+    end
+
+    test "handles string fields with max_length constraint" do
+      schema = %{
+        username: {:string, max_length: 12}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               username: {:mcp_field, {:string, {:max, 12}}, []}
+             }
+    end
+
+    test "handles string fields with min_length and max_length" do
+      schema = %{
+        username: {:string, min_length: 3, max_length: 12}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               username: {:mcp_field, {:string, [min: 3, max: 12]}, []}
+             }
+    end
+
+    test "prefers numeric min/max over length aliases" do
+      schema = %{
+        token: {:string, min: 6, min_length: 2, max: 10, max_length: 20}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               token: {:mcp_field, {:string, [min: 6, max: 10]}, []}
              }
     end
 

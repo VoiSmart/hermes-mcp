@@ -109,6 +109,14 @@ defmodule Hermes.Server.Component.Schema do
     %{"type" => "string", "maxLength" => max}
   end
 
+  defp convert_type({:string, opts}) when is_list(opts) do
+    Enum.reduce(opts, %{"type" => "string"}, fn
+      {:min, min}, acc -> Map.put(acc, "minLength", min)
+      {:max, max}, acc -> Map.put(acc, "maxLength", max)
+      _, acc -> acc
+    end)
+  end
+
   defp convert_type({:integer, {:eq, value}}) do
     %{"type" => "integer", "const" => value}
   end
@@ -301,17 +309,24 @@ defmodule Hermes.Server.Component.Schema do
   defp normalize_field(nested) when is_map(nested), do: normalize(nested)
   defp normalize_field(other), do: other
 
+  @metadata_keys [:description, :format, :default, :type]
+
   defp split_opts(opts) do
-    Keyword.split(opts, [:description, :format, :default, :type])
+    {metadata, remaining} = Keyword.split(opts, @metadata_keys)
+    {metadata, remaining}
   end
 
   defp build_constrained_type(type, []), do: type
 
   defp build_constrained_type(:string, constraints) do
-    case {Keyword.get(constraints, :min), Keyword.get(constraints, :max)} do
-      {nil, max} when not is_nil(max) -> {:string, {:max, max}}
-      {min, nil} when not is_nil(min) -> {:string, {:min, min}}
-      _ -> :string
+    min_value = Keyword.get(constraints, :min) || Keyword.get(constraints, :min_length)
+    max_value = Keyword.get(constraints, :max) || Keyword.get(constraints, :max_length)
+
+    cond do
+      not is_nil(min_value) and not is_nil(max_value) -> {:string, [min: min_value, max: max_value]}
+      not is_nil(min_value) -> {:string, {:min, min_value}}
+      not is_nil(max_value) -> {:string, {:max, max_value}}
+      true -> :string
     end
   end
 
