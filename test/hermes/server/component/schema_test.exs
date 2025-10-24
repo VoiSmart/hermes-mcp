@@ -595,6 +595,102 @@ defmodule Hermes.Server.Component.SchemaTest do
              }
     end
 
+    test "handles fields with min constraint only" do
+      schema = %{
+        threshold: {:integer, min: 5}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               threshold: {:mcp_field, {:integer, {:gte, 5}}, []}
+             }
+    end
+
+    test "handles fields with max constraint only" do
+      schema = %{
+        ceiling: {:integer, max: 10}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               ceiling: {:mcp_field, {:integer, {:lte, 10}}, []}
+             }
+    end
+
+    test "handles :mcp_field float fields with min constraint only" do
+      schema = %{
+        ratio: {:float, min: 0.1}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               ratio: {:mcp_field, {:float, {:gte, 0.1}}, []}
+             }
+    end
+
+    test "handles :mcp_field float fields with max constraint only" do
+      schema = %{
+        ratio: {:float, max: 0.9}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               ratio: {:mcp_field, {:float, {:lte, 0.9}}, []}
+             }
+    end
+
+    test "handles :mcp_field float fields with range constraint" do
+      schema = %{
+        ratio: {:float, min: 0.1, max: 0.9}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               ratio: {:mcp_field, {:float, {:range, {0.1, 0.9}}}, []}
+             }
+    end
+
+    test "handles :mcp_field integer fields with range constraint" do
+      schema = %{
+        quantity: {:integer, min: 1, max: 5}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               quantity: {:mcp_field, {:integer, {:range, {1, 5}}}, []}
+             }
+    end
+
+    test "handles :mcp_field integer fields with range constraint and metadata" do
+      schema = %{
+        quantity: {:integer, min: 1, max: 5, description: "Allowed quantity"}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               quantity: {:mcp_field, {:integer, {:range, {1, 5}}}, [description: "Allowed quantity"]}
+             }
+    end
+
+    test "handles :mcp_field already tagged required mcp_field with constraints" do
+      schema = %{
+        count: {:mcp_field, {:required, :integer}, [min: 1, description: "Count of items"]}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               count: {:mcp_field, {:required, {:integer, {:gte, 1}}}, [description: "Count of items"]}
+             }
+    end
+
     test "handles required fields with constraints and metadata" do
       schema = %{
         name: {:required, :string, max: 50, description: "User name"}
@@ -603,7 +699,19 @@ defmodule Hermes.Server.Component.SchemaTest do
       normalized = Schema.normalize(schema)
 
       assert normalized == %{
-               name: {:mcp_field, {:required, :string}, [max: 50, description: "User name"]}
+               name: {:mcp_field, {:required, {:string, {:max, 50}}}, [description: "User name"]}
+             }
+    end
+
+    test "handles :mcp_field required fields without constraints but with metadata" do
+      schema = %{
+        name: {:required, :string, description: "User name"}
+      }
+
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               name: {:mcp_field, {:required, :string}, [description: "User name"]}
              }
     end
 

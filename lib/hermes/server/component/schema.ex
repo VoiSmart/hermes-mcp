@@ -240,7 +240,8 @@ defmodule Hermes.Server.Component.Schema do
   end
 
   defp normalize_field({:required, type, opts}) when is_list(opts) do
-    {:mcp_field, {:required, type}, opts}
+    {:mcp_field, norm_type, norm_metadata} = normalize_field({type, opts})
+    {:mcp_field, {:required, norm_type}, norm_metadata}
   end
 
   defp normalize_field({type, opts}) when is_list(opts) do
@@ -270,6 +271,21 @@ defmodule Hermes.Server.Component.Schema do
     {:mcp_field, {:list, normalize_field(item_type)}, opts}
   end
 
+  defp normalize_field({:mcp_field, {:required, type}, opts}) do
+    normalize_field({:required, type, opts})
+  end
+
+  defp normalize_field({:mcp_field, item_type, opts} = _field) when is_list(opts) do
+    {metadata, constraints} = split_opts(opts)
+
+    if Enum.empty?(constraints) do
+      {:mcp_field, item_type, metadata}
+    else
+      base_type = build_constrained_type(item_type, constraints)
+      {:mcp_field, base_type, metadata}
+    end
+  end
+
   defp normalize_field({:mcp_field, _, _} = field), do: field
   defp normalize_field(nested) when is_map(nested), do: normalize(nested)
   defp normalize_field(other), do: other
@@ -279,10 +295,6 @@ defmodule Hermes.Server.Component.Schema do
   end
 
   defp build_constrained_type(type, []), do: type
-
-  defp build_constrained_type(type, [{key, value}]) do
-    {type, {key, value}}
-  end
 
   defp build_constrained_type(:string, constraints) do
     case {Keyword.get(constraints, :min), Keyword.get(constraints, :max)} do
@@ -294,14 +306,14 @@ defmodule Hermes.Server.Component.Schema do
 
   defp build_constrained_type(:integer, constraints) do
     case {Keyword.get(constraints, :min), Keyword.get(constraints, :max)} do
-      {min, max} when not is_nil(min) and not is_nil(max) ->
+      {min, max} when not (is_nil(min) or is_nil(max)) ->
         {:integer, {:range, {min, max}}}
 
       {nil, max} when not is_nil(max) ->
-        {:integer, {:max, max}}
+        {:integer, {:lte, max}}
 
       {min, nil} when not is_nil(min) ->
-        {:integer, {:min, min}}
+        {:integer, {:gte, min}}
 
       _ ->
         :integer
@@ -310,18 +322,22 @@ defmodule Hermes.Server.Component.Schema do
 
   defp build_constrained_type(:float, constraints) do
     case {Keyword.get(constraints, :min), Keyword.get(constraints, :max)} do
-      {min, max} when not is_nil(min) and not is_nil(max) ->
+      {min, max} when not (is_nil(min) or is_nil(max)) ->
         {:float, {:range, {min, max}}}
 
       {nil, max} when not is_nil(max) ->
-        {:float, {:max, max}}
+        {:float, {:lte, max}}
 
       {min, nil} when not is_nil(min) ->
-        {:float, {:min, min}}
+        {:float, {:gte, min}}
 
       _ ->
         :float
     end
+  end
+
+  defp build_constrained_type(type, [{key, value}]) do
+    {type, {key, value}}
   end
 
   defp build_constrained_type(type, _constraints), do: type
