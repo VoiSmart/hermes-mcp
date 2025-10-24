@@ -249,4 +249,55 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
 
     module
   end
+
+  describe "Component.input_schema/0 with DSL macros generates correct JSON Schema" do
+    test "complex schema with various fields and constraints" do
+      tool_module =
+        build_tool(
+          quote do
+            field :username, :string, required: true, description: "User's login name"
+            field :age, :integer, min: 0, description: "User's age"
+            field :email, :string, format: "email", required: true
+
+            field :preferences do
+              field :newsletter, :boolean
+              field :notifications, :string
+            end
+          end
+        )
+
+      expected_json_schema = %{
+        "type" => "object",
+        "properties" => %{
+          "username" => %{
+            "type" => "string",
+            "description" => "User's login name"
+          },
+          "age" => %{
+            "type" => "integer",
+            "minimum" => 0,
+            "description" => "User's age"
+          },
+          "email" => %{
+            "type" => "string",
+            "format" => "email"
+          },
+          "preferences" => %{
+            "type" => "object",
+            "properties" => %{
+              "newsletter" => %{
+                "type" => "boolean"
+              },
+              "notifications" => %{
+                "type" => "string"
+              }
+            }
+          }
+        },
+        "required" => ["email", "username"]
+      }
+
+      assert tool_module.input_schema() == expected_json_schema
+    end
+  end
 end

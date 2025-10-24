@@ -49,7 +49,7 @@ defmodule Hermes.Server.Component do
         def input_schema do
           alias Hermes.Server.Component.Schema
 
-          Schema.to_json_schema(__mcp_raw_schema__())
+          Schema.to_json_schema(__mcp_normalized_schema__())
         end
 
         if unquote(annotations) != nil do
@@ -63,7 +63,7 @@ defmodule Hermes.Server.Component do
         def arguments do
           alias Hermes.Server.Component.Schema
 
-          Schema.to_prompt_arguments(__mcp_raw_schema__())
+          Schema.to_prompt_arguments(__mcp_normalized_schema__())
         end
       end
 
@@ -106,9 +106,14 @@ defmodule Hermes.Server.Component do
       @doc false
       def __mcp_raw_schema__, do: unquote(wrapped_schema)
 
+      @doc false
+      def __mcp_normalized_schema__ do
+        Hermes.Server.Component.Schema.normalize(__mcp_raw_schema__())
+      end
+
       defschema(
         :mcp_schema,
-        Component.__clean_schema_for_peri__(unquote(wrapped_schema))
+        Component.__clean_schema_for_peri__(__mcp_normalized_schema__())
       )
     end
   end
