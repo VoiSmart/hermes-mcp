@@ -259,19 +259,14 @@ defmodule Hermes.Server.Component.Schema do
   end
 
   defp normalize_field({:required, type, opts}) when is_list(opts) do
-    {:mcp_field, norm_type, norm_metadata} = normalize_field({type, opts})
+    {:mcp_field, norm_type, norm_metadata} =
+      if is_map(type) do
+        normalize_field({:object, type, opts})
+      else
+        normalize_field({type, opts})
+      end
+
     {:mcp_field, {:required, norm_type}, norm_metadata}
-  end
-
-  defp normalize_field({type, opts}) when is_list(opts) do
-    {metadata, constraints} = split_opts(opts)
-
-    if Enum.empty?(constraints) do
-      {:mcp_field, type, metadata}
-    else
-      base_type = build_constrained_type(type, constraints)
-      {:mcp_field, base_type, metadata}
-    end
   end
 
   defp normalize_field({:object, fields}) when is_map(fields) do
@@ -294,18 +289,25 @@ defmodule Hermes.Server.Component.Schema do
     normalize_field({:required, type, opts})
   end
 
-  defp normalize_field({:mcp_field, item_type, opts} = _field) when is_list(opts) do
+  defp normalize_field({:mcp_field, type, opts} = _field) when is_list(opts) do
     {metadata, constraints} = split_opts(opts)
 
-    if Enum.empty?(constraints) do
-      {:mcp_field, item_type, metadata}
+    if is_map(type) do
+      normalized = normalize_field({:object, type})
+      {:mcp_field, normalized, metadata}
     else
-      base_type = build_constrained_type(item_type, constraints)
-      {:mcp_field, base_type, metadata}
+      build_type(type, constraints, metadata)
     end
   end
 
   defp normalize_field({:mcp_field, _, _} = field), do: field
+
+  defp normalize_field({type, opts}) when is_list(opts) do
+    {metadata, constraints} = split_opts(opts)
+
+    build_type(type, constraints, metadata)
+  end
+
   defp normalize_field(nested) when is_map(nested), do: normalize(nested)
   defp normalize_field(other), do: other
 
@@ -314,6 +316,15 @@ defmodule Hermes.Server.Component.Schema do
   defp split_opts(opts) do
     {metadata, remaining} = Keyword.split(opts, @metadata_keys)
     {metadata, remaining}
+  end
+
+  def build_type(type, constraints, metadata) do
+    if Enum.empty?(constraints) do
+      {:mcp_field, type, metadata}
+    else
+      base_type = build_constrained_type(type, constraints)
+      {:mcp_field, base_type, metadata}
+    end
   end
 
   defp build_constrained_type(type, []), do: type

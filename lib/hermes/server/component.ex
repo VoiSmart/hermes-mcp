@@ -3,6 +3,7 @@ defmodule Hermes.Server.Component do
 
   alias Hermes.Server.Component.Prompt
   alias Hermes.Server.Component.Resource
+  alias Hermes.Server.Component.Schema, as: ComponentSchema
   alias Hermes.Server.Component.Tool
 
   @doc false
@@ -108,7 +109,7 @@ defmodule Hermes.Server.Component do
 
       @doc false
       def __mcp_normalized_schema__ do
-        Hermes.Server.Component.Schema.normalize(__mcp_raw_schema__())
+        ComponentSchema.normalize(__mcp_raw_schema__())
       end
 
       defschema(
