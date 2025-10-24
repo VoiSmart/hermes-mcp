@@ -541,7 +541,7 @@ defmodule Hermes.Server do
 
     if Hermes.exported?(mod, :input_schema, 0) do
       validate_input = fn params ->
-        mod.__mcp_raw_schema__()
+        mod.__mcp_normalized_schema__()
         |> Component.__clean_schema_for_peri__()
         |> Peri.validate(params)
       end
@@ -566,7 +566,7 @@ defmodule Hermes.Server do
   def parse_components({:prompt, name, mod}) do
     if Hermes.exported?(mod, :arguments, 0) do
       validate_input = fn params ->
-        mod.__mcp_raw_schema__()
+        mod.__mcp_normalized_schema__()
         |> Component.__clean_schema_for_peri__()
         |> Peri.validate(params)
       end
