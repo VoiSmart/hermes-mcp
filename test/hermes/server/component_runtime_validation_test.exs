@@ -222,6 +222,139 @@ defmodule Hermes.Server.ComponentRuntimeValidationTest do
       assert {:error, errors} = tool_module.mcp_schema(%{status: "active", nested_enum: %{level: "extreme"}})
       assert [:nested_enum, :level] in error_paths(errors)
     end
+
+    test "enforces type constraints and required fields" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :username, :string, required: true
+            field :age, :integer, min: 0, max: 120
+            field :email, :string, required: true
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{username: "user-1", email: "user@example.com", age: 25})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{username: "user-1", age: -5})
+
+      assert Enum.any?(errors, &match?(%{path: [:age]}, &1))
+      assert Enum.any?(errors, &match?(%{path: [:email]}, &1))
+    end
+
+    test "enforces float range constraints" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :ratio, :float, min: 0.1, max: 0.9
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{ratio: 0.5})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{ratio: 1.5})
+      assert Enum.any?(errors, &match?(%{path: [:ratio]}, &1))
+
+      assert {:error, errors} = tool_module.mcp_schema(%{ratio: 0.0})
+      assert Enum.any?(errors, &match?(%{path: [:ratio]}, &1))
+    end
+
+    test "validates nested objects constrained plus required fields" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :profile, required: true do
+              field :first_name, :string, required: true
+              field :last_name, :string, max_length: 5
+              field :age, :integer, min: 0
+            end
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{profile: %{first_name: "John"}})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{})
+      paths = error_paths(errors)
+      assert [:profile] in paths
+
+      assert {:error, errors} = tool_module.mcp_schema(%{profile: %{}})
+      paths = error_paths(errors)
+      assert [:profile, :first_name] in paths
+
+      assert {:error, errors} = tool_module.mcp_schema(%{profile: %{first_name: "Alice", age: -10}})
+      assert [:profile, :age] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{profile: %{first_name: "magnum", last_name: "magnums"}})
+      paths = error_paths(errors)
+      assert [:profile, :last_name] in paths
+    end
+
+    test "validates string length constraints" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :title, :string, min_length: 5, max_length: 20
+            field :description, :string, max_length: 100
+
+            field :nestings do
+              field :tags, :string
+
+              field :notes do
+                field :comments, :string, min_length: 10
+              end
+            end
+          end
+        )
+
+      assert {:ok, _} =
+               tool_module.mcp_schema(%{
+                 title: "A valid title",
+                 description: "Some description",
+                 nesting: %{notes: %{comment: "This is a valid comment"}}
+               })
+
+      assert {:error, errors} = tool_module.mcp_schema(%{title: "Shrt"})
+      assert [:title] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{title: "This title is way too long to be valid"})
+      assert [:title] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{nestings: %{notes: %{comments: "Too short"}}})
+      assert [:nestings, :notes, :comments] in error_paths(errors)
+    end
+
+    test "ignores unknown fields in input data" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :user, required: true, description: "User information" do
+              field :id, :string, format: "uuid", required: true
+
+              field :profile do
+                field :age, :integer, min: 0
+                field :bio, :string, max_length: 160
+              end
+            end
+          end
+        )
+
+      assert {:ok, _} =
+               tool_module.mcp_schema(%{
+                 user: %{
+                   id: "550e8400-e29b-41d4-a716-446655440000",
+                   profile: %{
+                     age: 30,
+                     bio: "Hello world!"
+                   },
+                   extra_field: "should be ignored"
+                 },
+                 another_extra: 123
+               })
+
+      assert {:error, errors} = tool_module.mcp_schema(%{user: %{profile: %{age: -5}}})
+      paths = error_paths(errors)
+      assert [:user, :id] in paths
+      assert [:user, :profile, :age] in paths
+    end
   end
 
   defp error_paths(errors) do

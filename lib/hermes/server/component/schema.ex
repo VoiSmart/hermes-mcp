@@ -259,14 +259,8 @@ defmodule Hermes.Server.Component.Schema do
   end
 
   defp normalize_field({:required, type, opts}) when is_list(opts) do
-    {:mcp_field, norm_type, norm_metadata} =
-      if is_map(type) do
-        normalize_field({:object, type, opts})
-      else
-        normalize_field({type, opts})
-      end
-
-    {:mcp_field, {:required, norm_type}, norm_metadata}
+    {normalized, metadata} = normalize_mcp_field(type, opts)
+    {:mcp_field, {:required, normalized}, metadata}
   end
 
   defp normalize_field({:object, fields}) when is_map(fields) do
@@ -285,47 +279,52 @@ defmodule Hermes.Server.Component.Schema do
     {:mcp_field, {:list, normalize_field(item_type)}, opts}
   end
 
-  defp normalize_field({:mcp_field, {:required, type}, opts}) do
-    {values, opts} = Keyword.pop(opts, :values)
-
-    case values do
-      nil ->
-        normalize_field({:required, type, opts})
-
-      _ ->
-        normalize_field({{:required, {:enum, values}}, [{:type, type} | opts]})
-    end
+  defp normalize_field({:mcp_field, {:required, type}, opts}) when is_list(opts) do
+    normalize_field({:required, type, opts})
   end
 
-  defp normalize_field({:mcp_field, type, opts} = _field) when is_list(opts) do
-    {values, opts} = Keyword.pop(opts, :values)
-
-    case values do
-      nil ->
-        {metadata, constraints} = split_opts(opts)
-
-        if is_map(type) do
-          normalized = normalize_field({:object, type})
-          {:mcp_field, normalized, metadata}
-        else
-          build_type(type, constraints, metadata)
-        end
-
-      _ ->
-        normalize_field({{:enum, values}, [{:type, type} | opts]})
-    end
+  defp normalize_field({:mcp_field, type, opts}) when is_list(opts) do
+    {normalized, metadata} = normalize_mcp_field(type, opts)
+    {:mcp_field, normalized, metadata}
   end
 
   defp normalize_field({:mcp_field, _, _} = field), do: field
 
   defp normalize_field({type, opts}) when is_list(opts) do
-    {metadata, constraints} = split_opts(opts)
-
-    build_type(type, constraints, metadata)
+    {normalized, metadata} = normalize_mcp_field(type, opts)
+    {:mcp_field, normalized, metadata}
   end
 
   defp normalize_field(nested) when is_map(nested), do: normalize(nested)
   defp normalize_field(other), do: other
+
+  defp normalize_mcp_field(type, opts) do
+    base_type = type
+    {values, opts} = Keyword.pop(opts, :values)
+
+    {type_for_constraints, opts} =
+      case values do
+        nil -> {base_type, opts}
+        values -> {wrap_enum(base_type, values), [{:type, base_type} | opts]}
+      end
+
+    {metadata, constraints} = split_opts(opts)
+
+    if is_map(base_type) do
+      {normalize_field({:object, base_type}), metadata}
+    else
+      {:mcp_field, normalized, ^metadata} = build_type(type_for_constraints, constraints, metadata)
+      {normalized, metadata}
+    end
+  end
+
+  defp wrap_enum({:required, inner}, values) do
+    {:required, wrap_enum(inner, values)}
+  end
+
+  defp wrap_enum(_type, values) do
+    {:enum, values}
+  end
 
   @metadata_keys [:description, :format, :default, :type]
 
