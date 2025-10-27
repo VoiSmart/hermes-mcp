@@ -379,13 +379,23 @@ defmodule Hermes.Server.Component do
   @doc false
   def __clean_schema_for_peri__(schema) when is_map(schema) do
     Map.new(schema, fn
-      {key, {:mcp_field, type, _opts}} -> {key, __clean_schema_for_peri__(type)}
+      {key, {:mcp_field, type, _opts}} -> {key, __clean_mcp_field__(type)}
       {key, nested} when is_map(nested) -> {key, __clean_schema_for_peri__(nested)}
       {key, value} -> {key, __inject_transforms__(value)}
     end)
   end
 
   def __clean_schema_for_peri__(schema), do: __inject_transforms__(schema)
+
+  defp __clean_mcp_field__({:required, type}) do
+    {:required, __clean_mcp_field__(type)}
+  end
+
+  defp __clean_mcp_field__(type) when is_map(type) do
+    {:schema, __clean_schema_for_peri__(type)}
+  end
+
+  defp __clean_mcp_field__(type), do: __inject_transforms__(type)
 
   defp __inject_transforms__({type, {:default, default}}) when type in ~w(date datetime naive_datetime time)a do
     base = __inject_transforms__(type)
