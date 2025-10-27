@@ -286,17 +286,33 @@ defmodule Hermes.Server.Component.Schema do
   end
 
   defp normalize_field({:mcp_field, {:required, type}, opts}) do
-    normalize_field({:required, type, opts})
+    {values, opts} = Keyword.pop(opts, :values)
+
+    case values do
+      nil ->
+        normalize_field({:required, type, opts})
+
+      _ ->
+        normalize_field({{:required, {:enum, values}}, [{:type, type} | opts]})
+    end
   end
 
   defp normalize_field({:mcp_field, type, opts} = _field) when is_list(opts) do
-    {metadata, constraints} = split_opts(opts)
+    {values, opts} = Keyword.pop(opts, :values)
 
-    if is_map(type) do
-      normalized = normalize_field({:object, type})
-      {:mcp_field, normalized, metadata}
-    else
-      build_type(type, constraints, metadata)
+    case values do
+      nil ->
+        {metadata, constraints} = split_opts(opts)
+
+        if is_map(type) do
+          normalized = normalize_field({:object, type})
+          {:mcp_field, normalized, metadata}
+        else
+          build_type(type, constraints, metadata)
+        end
+
+      _ ->
+        normalize_field({{:enum, values}, [{:type, type} | opts]})
     end
   end
 
