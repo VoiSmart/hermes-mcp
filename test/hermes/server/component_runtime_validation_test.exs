@@ -176,6 +176,52 @@ defmodule Hermes.Server.ComponentRuntimeValidationTest do
       error_paths = error_paths(errors)
       assert Enum.member?(error_paths, [:user, :profile, :email])
     end
+
+    test "validate values dsl (enum) field as enum" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :status, :string, values: ["active", "inactive", "pending"], required: true
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{status: "active"})
+      assert {:ok, _} = tool_module.mcp_schema(%{status: "inactive"})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{status: "unknown"})
+      assert [:status] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{})
+      assert [:status] in error_paths(errors)
+    end
+
+    test "still validates enum fields after values intro in dsl" do
+      require Logger
+
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :status, {:enum, ["active", "inactive", "pending"]}, type: :string, required: true
+
+            field :nested_enum do
+              field :level, {:enum, ["low", "medium", "high"]}, type: :string, required: true
+            end
+          end
+        )
+
+      assert {:ok, _} = tool_module.mcp_schema(%{status: "active"})
+      assert {:ok, _} = tool_module.mcp_schema(%{status: "inactive"})
+
+      assert {:error, errors} = tool_module.mcp_schema(%{status: "unknown"})
+      assert [:status] in error_paths(errors)
+
+      assert {:error, errors} = tool_module.mcp_schema(%{})
+      assert [:status] in error_paths(errors)
+
+      assert {:ok, _} = tool_module.mcp_schema(%{status: "active", nested_enum: %{level: "medium"}})
+      assert {:error, errors} = tool_module.mcp_schema(%{status: "active", nested_enum: %{level: "extreme"}})
+      assert [:nested_enum, :level] in error_paths(errors)
+    end
   end
 
   defp error_paths(errors) do

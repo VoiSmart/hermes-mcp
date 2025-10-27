@@ -277,9 +277,61 @@ defmodule Hermes.Server.SchemaMacroDSLTest do
              }
     end
 
-    test "nested field macro with notexisting constraints/metadata are ignored" do
-      require Logger
+    test "field macro values is correctly parsed as enum" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :status, :string, values: ["active", "inactive", "pending"]
+          end
+        )
 
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               status: {:mcp_field, {:enum, ["active", "inactive", "pending"]}, [type: :string]}
+             }
+    end
+
+    test "field macro enum is still correctly parsed as enum after values introduction" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :status, {:enum, ["active", "inactive", "pending"]}, type: :string
+          end
+        )
+
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               status: {:mcp_field, {:enum, ["active", "inactive", "pending"]}, [type: :string]}
+             }
+    end
+
+    test "nested field macro values is correctly parsed as enum" do
+      tool_module =
+        SchemaDSLHelpers.build_tool(
+          quote do
+            field :config do
+              field :mode, :string, required: true, values: ["auto", "manual"]
+            end
+          end
+        )
+
+      schema = tool_module.__mcp_raw_schema__()
+      normalized = Schema.normalize(schema)
+
+      assert normalized == %{
+               config:
+                 {:mcp_field,
+                  %{
+                    mode: {:mcp_field, {:required, {:enum, ["auto", "manual"]}}, [type: :string]}
+                  }, []}
+             }
+    end
+
+    test "nested field macro with notexisting constraints/metadata are ignored" do
       tool_module =
         SchemaDSLHelpers.build_tool(
           quote do
